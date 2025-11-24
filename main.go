@@ -80,16 +80,105 @@ func findCommonPrefix(strs []string) string {
 	return prefix
 }
 
-// collectFiles recursively collects all files in a directory
-func collectFiles(root string) ([]string, error) {
+// findMajorityPrefix finds common prefix for the majority of files (at least 70%)
+// This helps handle cases where a few outlier files don't share the common prefix
+func findMajorityPrefix(strs []string) string {
+	if len(strs) < 2 {
+		return ""
+	}
+
+	// Try to find a prefix that works for at least 70% of files
+	threshold := int(float64(len(strs)) * 0.7)
+	if threshold < 2 {
+		threshold = 2
+	}
+
+	// Try each file as a potential prefix source
+	bestPrefix := ""
+	bestMatchCount := 0
+
+	for _, sourceFile := range strs {
+		// Try different prefix lengths from this file
+		for length := len(sourceFile); length >= 3; length-- {
+			potentialPrefix := sourceFile[:length]
+
+			// Count how many files have this prefix
+			matchCount := 0
+			for _, s := range strs {
+				if strings.HasPrefix(s, potentialPrefix) {
+					matchCount++
+				}
+			}
+
+			// If this prefix matches more files than our current best
+			if matchCount >= threshold && matchCount > bestMatchCount {
+				// Find the last separator position
+				lastSep := -1
+				for i := len(potentialPrefix) - 1; i >= 0; i-- {
+					ch := potentialPrefix[i]
+					if ch == '-' || ch == '_' || ch == ' ' || ch == ')' || ch == ']' {
+						lastSep = i + 1
+						break
+					}
+					// Check for Chinese 】 symbol (UTF-8: E3 80 91)
+					if i >= 2 && potentialPrefix[i-2] == 0xE3 && potentialPrefix[i-1] == 0x80 && potentialPrefix[i] == 0x91 {
+						lastSep = i + 1
+						break
+					}
+				}
+
+				if lastSep > 0 && lastSep < len(potentialPrefix) {
+					finalPrefix := potentialPrefix[:lastSep]
+					if len(strings.TrimSpace(finalPrefix)) >= 3 {
+						bestPrefix = finalPrefix
+						bestMatchCount = matchCount
+					}
+				}
+			}
+		}
+	}
+
+	return bestPrefix
+} // collectFiles recursively collects all files in a directory
+// excludeDirs: directories to skip (e.g., @eaDir, .git)
+// extensions: allowed file extensions (e.g., .mp3, .m4a); empty means all files
+func collectFiles(root string, excludeDirs []string, extensions []string) ([]string, error) {
 	var files []string
+
+	// Convert extensions to lowercase for case-insensitive matching
+	extMap := make(map[string]bool)
+	for _, ext := range extensions {
+		if !strings.HasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+		extMap[strings.ToLower(ext)] = true
+	}
+
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() {
-			files = append(files, path)
+
+		// Skip excluded directories
+		if info.IsDir() {
+			dirName := filepath.Base(path)
+			for _, excludeDir := range excludeDirs {
+				if dirName == excludeDir {
+					return filepath.SkipDir
+				}
+			}
+			return nil
 		}
+
+		// Filter by extension if specified
+		if len(extMap) > 0 {
+			ext := strings.ToLower(filepath.Ext(path))
+			if !extMap[ext] {
+				return nil
+			}
+		}
+
+		files = append(files, path)
 		return nil
 	})
 	return files, err
@@ -117,15 +206,28 @@ func processDirectory(dir string, files []string, dryRun bool, autoYes bool) err
 		filenames[i] = filepath.Base(file)
 	}
 
-	// Find common prefix
+	// Find common prefix for all files
 	prefix := findCommonPrefix(filenames)
+
+	// If prefix is too short, try smart filtering: find prefix for majority of files
 	if prefix == "" || len(strings.TrimSpace(prefix)) < 3 {
-		return nil // Prefix too short, skip processing
+		prefix = findMajorityPrefix(filenames)
+		if prefix == "" || len(strings.TrimSpace(prefix)) < 3 {
+			return nil // Still no good prefix, skip processing
+		}
 	}
 
 	fmt.Printf("\nDirectory: %s\n", dir)
 	fmt.Printf("Common prefix found: %s (length: %d bytes)\n", prefix, len(prefix))
-	fmt.Printf("File count: %d\n", len(files))
+
+	// Count how many files will actually be renamed
+	matchCount := 0
+	for _, name := range filenames {
+		if strings.HasPrefix(name, prefix) {
+			matchCount++
+		}
+	}
+	fmt.Printf("File count: %d (matching prefix: %d)\n", len(files), matchCount)
 
 	// Display first filename as example
 	if len(filenames) > 0 {
@@ -225,6 +327,8 @@ func removePrefixCommand(args []string) {
 	dir := fs.String("dir", ".", "Directory path to process")
 	dryRun := fs.Bool("dry-run", false, "Preview mode, don't actually rename files")
 	autoYes := fs.Bool("y", false, "Auto-confirm all operations without asking")
+	excludeDirs := fs.String("exclude-dirs", "@eaDir", "Comma-separated list of directory names to exclude")
+	exts := fs.String("exts", "", "Comma-separated list of file extensions to process (e.g., mp3,m4a,flac,wav,mp4,mkv)")
 
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: audiotool removeprefix [options]\n\n")
@@ -234,9 +338,14 @@ func removePrefixCommand(args []string) {
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  audiotool removeprefix -dir /path/to/music -dry-run\n")
 		fmt.Fprintf(os.Stderr, "  audiotool removeprefix -dir /path/to/music -y\n")
+		fmt.Fprintf(os.Stderr, "  audiotool removeprefix -dir /path/to/music -exts mp3,m4a,flac\n")
+		fmt.Fprintf(os.Stderr, "  audiotool removeprefix -dir /path/to/music -exclude-dirs @eaDir,.git\n")
 	}
 
-	fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to parse flags: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Get absolute path
 	absDir, err := filepath.Abs(*dir)
@@ -262,8 +371,28 @@ func removePrefixCommand(args []string) {
 	}
 	fmt.Println()
 
+	// Parse exclude directories
+	var excludeDirList []string
+	if *excludeDirs != "" {
+		excludeDirList = strings.Split(*excludeDirs, ",")
+		for i, dir := range excludeDirList {
+			excludeDirList[i] = strings.TrimSpace(dir)
+		}
+		fmt.Printf("Excluding directories: %v\n", excludeDirList)
+	}
+
+	// Parse file extensions
+	var extList []string
+	if *exts != "" {
+		extList = strings.Split(*exts, ",")
+		for i, ext := range extList {
+			extList[i] = strings.TrimSpace(ext)
+		}
+		fmt.Printf("Processing only files with extensions: %v\n", extList)
+	}
+
 	// Collect all files
-	files, err := collectFiles(absDir)
+	files, err := collectFiles(absDir, excludeDirList, extList)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: failed to collect files: %v\n", err)
 		os.Exit(1)

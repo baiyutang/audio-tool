@@ -25,19 +25,35 @@ jobs:
     - name: Build binaries
       run: |
         mkdir -p build
-        GOOS=linux GOARCH=amd64 go build -o build/audio-tool-linux-amd64 -ldflags "-X main.version=${{ github.ref_name }}" .
-        GOOS=darwin GOARCH=amd64 go build -o build/audio-tool-darwin-amd64 -ldflags "-X main.version=${{ github.ref_name }}" .
-        GOOS=darwin GOARCH=arm64 go build -o build/audio-tool-darwin-arm64 -ldflags "-X main.version=${{ github.ref_name }}" .
-        GOOS=windows GOARCH=amd64 go build -o build/audio-tool-windows-amd64.exe -ldflags "-X main.version=${{ github.ref_name }}" .
+
+        # Linux AMD64
+        GOOS=linux GOARCH=amd64 go build -o build/audiotool -ldflags "-X main.version=${{ github.ref_name }}" .
+        tar -czf build/audiotool-${{ github.ref_name }}-linux-amd64.tar.gz -C build audiotool
+        rm build/audiotool
+
+        # macOS AMD64
+        GOOS=darwin GOARCH=amd64 go build -o build/audiotool -ldflags "-X main.version=${{ github.ref_name }}" .
+        tar -czf build/audiotool-${{ github.ref_name }}-darwin-amd64.tar.gz -C build audiotool
+        rm build/audiotool
+
+        # macOS ARM64
+        GOOS=darwin GOARCH=arm64 go build -o build/audiotool -ldflags "-X main.version=${{ github.ref_name }}" .
+        tar -czf build/audiotool-${{ github.ref_name }}-darwin-arm64.tar.gz -C build audiotool
+        rm build/audiotool
+
+        # Windows AMD64
+        GOOS=windows GOARCH=amd64 go build -o build/audiotool.exe -ldflags "-X main.version=${{ github.ref_name }}" .
+        cd build && zip audiotool-${{ github.ref_name }}-windows-amd64.zip audiotool.exe && cd ..
+        rm build/audiotool.exe
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          build/audio-tool-linux-amd64
-          build/audio-tool-darwin-amd64
-          build/audio-tool-darwin-arm64
-          build/audio-tool-windows-amd64.exe
+          build/audiotool-${{ github.ref_name }}-linux-amd64.tar.gz
+          build/audiotool-${{ github.ref_name }}-darwin-amd64.tar.gz
+          build/audiotool-${{ github.ref_name }}-darwin-arm64.tar.gz
+          build/audiotool-${{ github.ref_name }}-windows-amd64.zip
         draft: false
         prerelease: false
         generate_release_notes: true
