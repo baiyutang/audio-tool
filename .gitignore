@@ -1,0 +1,47 @@
+# Binaries
+audiotool
+audio-tool
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build directory
+build/
+dist/
+
+# Test binaries and coverage
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Release artifacts
+*.tar.gz
+*.zip

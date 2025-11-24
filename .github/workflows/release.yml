@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Build binaries
+      run: |
+        mkdir -p build
+        GOOS=linux GOARCH=amd64 go build -o build/audio-tool-linux-amd64 -ldflags "-X main.version=${{ github.ref_name }}" .
+        GOOS=darwin GOARCH=amd64 go build -o build/audio-tool-darwin-amd64 -ldflags "-X main.version=${{ github.ref_name }}" .
+        GOOS=darwin GOARCH=arm64 go build -o build/audio-tool-darwin-arm64 -ldflags "-X main.version=${{ github.ref_name }}" .
+        GOOS=windows GOARCH=amd64 go build -o build/audio-tool-windows-amd64.exe -ldflags "-X main.version=${{ github.ref_name }}" .
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          build/audio-tool-linux-amd64
+          build/audio-tool-darwin-amd64
+          build/audio-tool-darwin-arm64
+          build/audio-tool-windows-amd64.exe
+        draft: false
+        prerelease: false
+        generate_release_notes: true
